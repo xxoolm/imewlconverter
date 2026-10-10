@@ -1,198 +1,243 @@
-﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.IO;
 using System.Text;
-using NUnit.Framework;
-using Studyzy.IMEWLConverter.Entities;
-using Studyzy.IMEWLConverter.IME;
+using ImeWlConverter.Abstractions.Enums;
+using ImeWlConverter.Abstractions.Models;
+using ImeWlConverter.Formats.SelfDefining;
+using Xunit;
 
-namespace Studyzy.IMEWLConverter.Test
+namespace Studyzy.IMEWLConverter.Test;
+
+public class SelfDefiningTest
 {
-    [TestFixture]
-    public class SelfDefiningTest
+    /// <summary>
+    /// Import "word code rank" format with space separator, pinyin comma-separated.
+    /// Old test: Sort={2,1,3}, SplitString=" ", CodeSplitString=","
+    /// </summary>
+    [Fact]
+    public void TestPinyinString2WL()
     {
-        //private SelfDefining selfDefining;
-        //[SetUp]
-        //public void Init()
-        //{
-        //    selfDefining=new SelfDefining();
-        //}
-        [Test]
-        public void TestPinyinString2WL()
+        var importer = new SelfDefiningImporter
         {
-            ParsePattern parser = new ParsePattern()
-            {
-                IsPinyinFormat = true,
-                CodeSplitType = BuildType.FullContain,
-                CodeSplitString = ",",
-                ContainCode = true,
-                ContainRank = true,
-                SplitString = " ",
-                Sort = new List<int>() { 2, 1, 3 }
-            };
-            var str = "深蓝 ,shen,lan, 1";
-            var selfDefining = new SelfDefining();
-            selfDefining.UserDefiningPattern = parser;
-            var wl = selfDefining.ImportLine(str)[0];
+            OrderSpec = "213",
+            FieldSeparator = ' ',
+            PinyinSeparator = ',',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = true
+        };
 
-            Assert.AreEqual(wl.Codes[0][0], "shen");
-            Assert.AreEqual(wl.Codes[1][0], "lan");
-            Assert.AreEqual(wl.Rank, 1);
-        }
+        var text = "深蓝 shen,lan 1";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+        var result = importer.ImportAsync(stream).GetAwaiter().GetResult();
+        var wl = result.Entries[0];
 
-        [Test]
-        public void TestWordLibrary2String()
+        Assert.Equal("深蓝", wl.Word);
+        Assert.Equal("shen", wl.Code!.Segments[0][0]);
+        Assert.Equal("lan", wl.Code.Segments[1][0]);
+        Assert.Equal(1, wl.Rank);
+    }
+
+    /// <summary>
+    /// Export word entry to "word|code|rank" format.
+    /// Old test: Sort={2,1,3}, SplitString="|", CodeSplitString=","
+    /// </summary>
+    [Fact]
+    public void TestWordLibrary2String()
+    {
+        var exporter = new SelfDefiningExporter
         {
-            ParsePattern parser = new ParsePattern()
+            OrderSpec = "213",
+            FieldSeparator = '|',
+            PinyinSeparator = ',',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = true
+        };
+
+        var wl = new WordEntry
+        {
+            Word = "深蓝",
+            Rank = 123,
+            CodeType = CodeType.Pinyin,
+            Code = WordCode.FromSingle(new[] { "shen", "lan" })
+        };
+
+        using var stream = new MemoryStream();
+        exporter.ExportAsync(new[] { wl }, stream).GetAwaiter().GetResult();
+        stream.Position = 0;
+        var output = new StreamReader(stream).ReadToEnd().Trim();
+
+        Assert.Equal("深蓝|shen,lan|123", output);
+    }
+
+    /// <summary>
+    /// Export with tilde pinyin separator.
+    /// Old test: CodeSplitString="~", SplitString="|", Sort={2,1,3}
+    /// </summary>
+    [Fact]
+    public void TestGeneratePinyinThen2String()
+    {
+        var exporter = new SelfDefiningExporter
+        {
+            OrderSpec = "213",
+            FieldSeparator = '|',
+            PinyinSeparator = '~',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = true
+        };
+
+        var wl = new WordEntry
+        {
+            Word = "深蓝",
+            Rank = 123,
+            CodeType = CodeType.Pinyin,
+            Code = WordCode.FromSingle(new[] { "shen", "lan" })
+        };
+
+        using var stream = new MemoryStream();
+        exporter.ExportAsync(new[] { wl }, stream).GetAwaiter().GetResult();
+        stream.Position = 0;
+        var output = new StreamReader(stream).ReadToEnd().Trim();
+
+        Assert.Equal("深蓝|shen~lan|123", output);
+    }
+
+    /// <summary>
+    /// Export with different format: Sort={3,2,1}, word first, underscore pinyin sep.
+    /// Old test: Sort={3,2,1}, SplitString="$", CodeSplitString="_", no rank
+    /// </summary>
+    [Fact]
+    public void TestExportPinyinDifferentFormatWL()
+    {
+        var exporter = new SelfDefiningExporter
+        {
+            OrderSpec = "321",
+            FieldSeparator = '$',
+            PinyinSeparator = '_',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = false
+        };
+
+        var wl = new WordEntry
+        {
+            Word = "深蓝测试",
+            Rank = 10,
+            CodeType = CodeType.Pinyin,
+            Code = WordCode.FromSingle(new[] { "shen", "lan", "ce", "shi" })
+        };
+
+        using var stream = new MemoryStream();
+        exporter.ExportAsync(new[] { wl }, stream).GetAwaiter().GetResult();
+        stream.Position = 0;
+        var output = new StreamReader(stream).ReadToEnd().Trim();
+
+        Assert.Equal("深蓝测试$shen_lan_ce_shi", output);
+    }
+
+    /// <summary>
+    /// Export with pinyin code, verifying basic export works for a single entry.
+    /// Replaces old external code table test (CodeType.UserDefine).
+    /// </summary>
+    [Fact]
+    public void TestExportExtCodeWL()
+    {
+        var exporter = new SelfDefiningExporter
+        {
+            OrderSpec = "12",
+            FieldSeparator = ' ',
+            PinyinSeparator = '\'',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = false
+        };
+
+        var wl = new WordEntry
+        {
+            Word = "深蓝测试",
+            Rank = 10,
+            CodeType = CodeType.Pinyin,
+            Code = WordCode.FromSingle(new[] { "shen", "lan", "ce", "shi" })
+        };
+
+        using var stream = new MemoryStream();
+        exporter.ExportAsync(new[] { wl }, stream).GetAwaiter().GetResult();
+        stream.Position = 0;
+        var output = new StreamReader(stream).ReadToEnd().Trim();
+
+        Assert.Equal("shen'lan'ce'shi 深蓝测试", output);
+    }
+
+    /// <summary>
+    /// Export multiple entries with incrementally longer words.
+    /// Replaces old external code table batch test.
+    /// </summary>
+    [Fact]
+    public void TestExportExtCodeLots()
+    {
+        var exporter = new SelfDefiningExporter
+        {
+            OrderSpec = "21",
+            FieldSeparator = ' ',
+            PinyinSeparator = '\'',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = false
+        };
+
+        var words = "深蓝词库转换测试代码";
+        var entries = new List<WordEntry>();
+        var accumulated = "";
+        foreach (var c in words)
+        {
+            accumulated += c;
+            entries.Add(new WordEntry
             {
-                IsPinyinFormat = true,
-                CodeSplitType = BuildType.FullContain,
-                CodeSplitString = ",",
-                ContainCode = true,
-                ContainRank = true,
-                SplitString = "|",
+                Word = accumulated,
+                Rank = 10,
                 CodeType = CodeType.Pinyin,
-                Sort = new List<int>() { 2, 1, 3 }
-            };
-            WordLibrary wl = new WordLibrary() { Word = "深蓝", Rank = 123, CodeType = CodeType.Pinyin };
-            wl.Codes = new Code();
-            wl.Codes.Add( new[] { "shen" });
-            wl.Codes.Add( new[] { "lan" });
-            var selfDefining = new SelfDefining();
-            selfDefining.UserDefiningPattern = parser;
-            var str = selfDefining.ExportLine(wl);
-            Assert.AreEqual(str, "深蓝|,shen,lan,|123");
-        }
-        [Test]
-        public void TestGeneratePinyinThen2String()
-        {
-            ParsePattern parser = new ParsePattern()
-            {
-                IsPinyinFormat = true,
-                CodeSplitType = BuildType.FullContain,
-                CodeSplitString = "~",
-                ContainCode = true,
-                ContainRank = true,
-                SplitString = "|",
-                CodeType = CodeType.Pinyin,
-                LineSplitString = "\r",
-                Sort = new List<int>() { 2, 1, 3 }
-            };
-            WordLibraryList wll = new WordLibraryList();
-            WordLibrary wl = new WordLibrary() { Word = "深蓝", Rank = 123, CodeType = CodeType.UserDefine };
-            wl.Codes = new Code();
-            wl.Codes.Add(new[] { "sn" });
-            wl.Codes.Add( new[] { "ln" });
-            wll.Add(wl);
-            var selfDefining = new SelfDefining();
-            selfDefining.UserDefiningPattern = parser;
-            var str = selfDefining.Export(wll);
-            Assert.AreEqual(str[0], "深蓝|~shen~lan~|123\r");
-        }
-        private WordLibrary WlData
-        {
-            get
-            {
-                return new WordLibrary
-                {
-                    Rank = 10,
-                    PinYin = new[] { "shen", "lan", "ce", "shi" },
-                    Word = "深蓝测试",
-                    CodeType = CodeType.Pinyin
-                };
-            }
-        }
-       
-        [Test]
-        public void TestExportPinyinDifferentFormatWL()
-        {
-            var p = new ParsePattern();
-            p.Sort=new List<int>(){3,2,1};
-            p.SplitString = "$";
-            p.ContainRank = false;
-            p.CodeSplitString = "_";
-            p.CodeSplitType= BuildType.None;
-            p.IsPinyinFormat = true;
-            p.CodeType = CodeType.Pinyin;
-            var selfDefining = new SelfDefining();
-
-            selfDefining.UserDefiningPattern = p;
-            Console.WriteLine("CodeType:" + selfDefining.UserDefiningPattern.CodeType.ToString());
-            var str1 = selfDefining.Export(new WordLibraryList() { WlData });
-            Console.WriteLine(str1[0]);
-            Assert.AreEqual(str1[0], "深蓝测试$shen_lan_ce_shi\r\n");
-        }
-        [Test]
-        public void TestExportExtCodeWL()
-        {
-            var selfDefining = new SelfDefining();
-            selfDefining.UserDefiningPattern = InitPattern();
-            selfDefining.UserDefiningPattern.MappingTablePath = "./Test/array30.txt";
-            var str = selfDefining.Export(new WordLibraryList() { WlData });
-            Debug.WriteLine(str);
-            //Assert.IsNotNullOrEmpty(str);
-        }
-        //[Test]
-        //public void TestWLWithoutPinyinExportException()
-        //{
-        //    export.UserDefiningPattern = InitPattern();
-        //    var str = export.Export(new WordLibraryList() { new WordLibrary { Count = 10, Word = "深蓝测试" } });
-        //    Debug.WriteLine(str);
-        //    Assert.IsNullOrEmpty(str);
-        //}
-        [Test]
-        public void TestExportExtCodeLots()
-        {
-            string str="深蓝词库转换测试代码";
-            var list = new WordLibraryList();
-            var ts = "";
-            foreach (var c in str)
-            {
-                ts += c;
-                list.Add(new WordLibrary() {Rank = 10, IsEnglish = false, Word = ts});
-            }
-
-            var selfDefining = new SelfDefining();
-            selfDefining.UserDefiningPattern = InitPattern();
-            selfDefining.UserDefiningPattern.MappingTablePath = "./Test/array30.txt";
-            var x = selfDefining.Export(list);
-            Debug.WriteLine(x);
-            Assert.IsNotNull(str);
-        }
-        [Test]
-        public void TestImportTxt()
-        {
-            string txt = "深藍 shen,lan 12345";
-            var pp = new ParsePattern();
-            pp.Sort=new List<int>(){2,1,3};
-            pp.IsPinyinFormat = true;
-            pp.CodeType = CodeType.Pinyin;
-            pp.CodeSplitString = ",";
-            pp.SplitString = " ";
-            pp.CodeSplitType= BuildType.None;
-            var selfDefining = new SelfDefining();
-            selfDefining.UserDefiningPattern = pp;
-   
-            var x = selfDefining.ImportLine(txt);
-            Debug.WriteLine(x[0].ToString());
-            Assert.AreEqual(x[0].Word,"深藍");
+                Code = WordCode.FromSingle(new[] { "py" })
+            });
         }
 
+        using var stream = new MemoryStream();
+        exporter.ExportAsync(entries, stream).GetAwaiter().GetResult();
+        stream.Position = 0;
+        var output = new StreamReader(stream).ReadToEnd();
 
-        private ParsePattern InitPattern()
+        Assert.Contains("深 py", output);
+        Assert.Contains("深蓝词库转换测试代码 py", output);
+        var lines = output.Trim().Split('\n');
+        Assert.Equal(words.Length, lines.Length);
+    }
+
+    /// <summary>
+    /// Import a simple "word code rank" line.
+    /// Old test: Sort={2,1,3}, SplitString=" ", CodeSplitString=","
+    /// </summary>
+    [Fact]
+    public void TestImportTxt()
+    {
+        var importer = new SelfDefiningImporter
         {
-            ParsePattern pp=new ParsePattern();
-            pp.MutiWordCodeFormat = @"code_e2=p11+p12+p21+p22
-code_e3=p11+p21+p31+p32
-code_a4=p11+p21+p31+n11";
-            pp.IsPinyinFormat = false;
-            pp.ContainRank = false;
-            pp.SplitString = " ";
-            pp.ContainCode = true;
-            pp.TextEncoding = Encoding.UTF8;
-            pp.CodeType = CodeType.UserDefine;
-            return pp;
-        }
-     
+            OrderSpec = "213",
+            FieldSeparator = ' ',
+            PinyinSeparator = ',',
+            ShowPinyin = true,
+            ShowWord = true,
+            ShowRank = true
+        };
+
+        var text = "深藍 shen,lan 12345";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+        var result = importer.ImportAsync(stream).GetAwaiter().GetResult();
+        var wl = result.Entries[0];
+
+        Assert.Equal("深藍", wl.Word);
+        Assert.Equal("shen", wl.Code!.Segments[0][0]);
+        Assert.Equal("lan", wl.Code.Segments[1][0]);
+        Assert.Equal(12345, wl.Rank);
     }
 }

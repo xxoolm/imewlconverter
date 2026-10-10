@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- Test execution settings -->
+  <RunConfiguration>
+    <!-- Maximum timeout for test run (in milliseconds) -->
+    <TestSessionTimeout>300000</TestSessionTimeout>
+    <!-- Phase 2 后静态可变状态已清除（CodeData 线程安全表），恢复并行 -->
+    <MaxCpuCount>0</MaxCpuCount>
+  </RunConfiguration>
+
+  <!-- xUnit adapter settings -->
+  <xUnit>
+    <!-- Timeout for individual test (in milliseconds) -->
+    <MaxParallelThreads>-1</MaxParallelThreads>
+  </xUnit>
+</RunSettings>

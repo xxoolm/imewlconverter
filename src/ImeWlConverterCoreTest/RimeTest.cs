@@ -1,30 +1,41 @@
-﻿using System;
-using NUnit.Framework;
-using Studyzy.IMEWLConverter.Entities;
-using Studyzy.IMEWLConverter.IME;
+/*
+ *   Copyright © 2009-2020 studyzy(深蓝,曾毅)
 
-namespace Studyzy.IMEWLConverter.Test
+ *   This program "IME WL Converter(深蓝词库转换)" is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+using System;
+using Xunit;
+using ImeWlConverter.Formats.Rime;
+
+namespace Studyzy.IMEWLConverter.Test;
+
+public class RimeTest : BaseTest
 {
-    [TestFixture]
-    internal class RimeTest : BaseTest
+    public RimeTest()
     {
-        [SetUp]
-        public override void InitData()
-        {
-            exporter = new Rime();
-            importer = new Rime();
-        }
+        exporter = new RimeExporter();
+        importer = new RimeImporter();
+    }
 
-        protected override string StringData
-        {
-            get { throw new NotImplementedException(); }
-        }
+    protected override string StringData => throw new NotImplementedException();
 
-        [TestCase("luna_pinyin_export.txt")]
-        public void TestImport(string path)
-        {
-            WordLibraryList wl = importer.Import(GetFullPath(path));
-            Assert.Greater(wl.Count, 0);
-        }
+    [Theory]
+    [InlineData("luna_pinyin_export.txt")]
+    public void TestImport(string path)
+    {
+        var result = ImportFromFile(GetFullPath(path));
+        Assert.True(result.Entries.Count > 0);
     }
 }
